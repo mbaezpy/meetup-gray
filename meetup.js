@@ -191,21 +191,22 @@ exports.getMeetups = function (communityURL, cb) {
             var event = {};
             event.title = $(this).find(".event-title").text().trim();
             event.url = $(this).find(".event-title").attr("src");
-            event.date = $(this).find("div.flush--left").text().trim();            
-            event.wentCount = $(this).find(".event-rating").text().trim().split("\n").shift();   
-            
+            event.eventId = event.url.split("/").splice(5).shift();
+            event.date = $(this).find("div.flush--left").text().trim();
+            event.wentCount = $(this).find(".event-rating").text().trim().split("\n").shift();
+
             // parsing rating from the "star" rating caption
             var rating = $(this).find(".event-rating img").attr("title");
-            if (rating){
+            if (rating) {
               rating = rating.replace(" ratings for an average of ", " ").
-                              replace(" out of ", " ").split(" ");
+              replace(" out of ", " ").split(" ");
 
               event.ratingAvg = rating.shift();
               event.ratingCount = rating.shift();
             }
-            
+
             // parsing photos count
-            if ($(this).find(".event-rating a").length>0) {
+            if ($(this).find(".event-rating a").length > 0) {
               event.photosCount = $(this).find(".event-rating  a").text().trim().split(" ").shift();
             }
 
@@ -235,14 +236,77 @@ exports.getMeetups = function (communityURL, cb) {
   var goNextPage = function () {
     var page = Math.ceil(events.length / 5);
     console.log("length(events): " + events.length + " page = " + page);
-    
-    if (events.length > 0) { 
-      console.log(events[events.length -1].title + " " + events[events.length -1].date);
+
+    if (events.length > 0) {
+      console.log(events[events.length - 1].title + " " + events[events.length - 1].date);
     }
-    
+
     processPage(url + "?page=" + page, cb);
   };
   // starting the process
   goNextPage();
 
 };
+
+
+exports.getMeetupDetail = function (communityURL, eventId, cb) {
+  var url = communityURL + "events/" + eventId + "/";
+  page.open(url, function (status) {
+    page.includeJs("http://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js", function () {
+      var details = page.evaluate(function () {
+        var event = {};
+
+        event.title = $("#eventdets #event-title").text().trim();
+        event.date = $("#eventdets .past-event-info li:first").text().trim();
+        event.locAddress = $("#eventdets .past-event-info li[data-address]").attr("data-address");
+        event.locName = $("#eventdets .past-event-info li[data-address]").attr("data-name");
+        event.description = $("#eventdets #past-event-description-wrap p:first").text();
+
+        // Answers to the questions posed by the community
+        var comments = [];
+        var lastComment = {};
+        $("#conversation li[data-commenttype]").each(function () {
+          var comment = {};
+          comment.commentId = $(this).attr("id");
+          comment.memid = $(this).find("h5 a").attr("data-memberid");
+          comment.name = $(this).find("h5 a").attr("title");
+          comment.body = $(this).find(".comment-body").text().trim();
+          
+          var extra = $(this).find(".figureset-description > p").text().trim().split(" · ");
+          comment.likes = extra.shift();
+          comment.date = extra.shift().trim();
+          
+          if ($(this).attr("data-commenttype") == "REPLY"){
+            comment.replyTo = lastComment.commentId;
+          } else {
+            lastComment = comment;
+          }
+          
+          comments.push(comment);
+        });
+        event.comments = comments;
+
+        // Other groups where the member is participating
+        var participants = [];
+        $("#rsvp-list > li").each(function () {
+          var member = {};
+          member.memid = $(this).attr("data-memberid");
+          member.name = $(this).find(".member-name").text().trim();
+          member.role = $(this).find(".rsvp-introBlurb h6").text().trim();
+
+          participants.push(member);
+        });
+
+        event.participants = participants;
+
+        return event;
+      });
+      
+      details.eventId = eventId;
+      details.url = url;
+      cb(details);
+    });
+  });
+
+};
+
