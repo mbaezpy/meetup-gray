@@ -1,13 +1,15 @@
 /**
  * Simple script that retrieves relevant information from 
- * meetup community. 
+ * a meetup community. 
  * This code was written only for research purposes.
  *
  * @author: Marcos Baez <baez@disi.unitn.it>
  * 
  */
-var page   = require('webpage').create(),
-    system = require('system');
+var system = require('system');
+var fs = require('fs');
+var meetup = require('./meetup');
+
 
 if (system.args.length === 1) {
   console.log('Usage: index.js <meetup URL>');
@@ -16,38 +18,114 @@ if (system.args.length === 1) {
 
 var url = system.args[1];
 
-page.open(url, function (status) {
-  page.includeJs("http://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js", function () {
-    var community = page.evaluate(function () {
-      var com = {};
+meetup.getCommunity(url, function (com) {
+
+  // writing results to file
+  var content = JSON.stringify(com);
+  var path = com.name;
+  fs.write(path + ".json", content, 'w');
+
+  console.log("Community obtained.");
+
+//  getListOfMeetups(url, function (meetups) {
+//    var content = JSON.stringify(meetups);
+//    fs.write(path + "_meetups.json", content, 'w');
+//
+//    console.log("Process finished.");
+//
+//    phantom.exit();
+//  });
+
+    getListOfMembers(url, function (members) {
+      var content = JSON.stringify(members);
+      fs.write(path + "_members.json", content, 'w');
+  
+      console.log("List of members finished. Total : " + members.length + ".");
       
-      // retrieving general metadata
-      com.name = $("#C_metabox span[itemprop=name]").text();
-      com.url = $("#C_metabox span[itemprop=url]").text();
-      com.locality = $("#C_metabox span[itemprop=addressLocality]").text();
-      com.region = $("#C_metabox span[itemprop=addressRegion]").text();
-      com.postalCode = $("#C_metabox span[itemprop=postalCode]").text();
-      com.foundingDate = $("#C_metabox span[itemprop=foundingDate]").text();
+      
+      getListOfMeetups(url, function (meetups) {
+        var content = JSON.stringify(meetups);
+        fs.write(path + "_meetups.json", content, 'w');
+  
+        console.log("Process finished.");
+  
+        phantom.exit();
+      });      
+  
+    });  
 
-      // list of topics of the community
-      var list = [];
-      $("#topicList14 a").each(function () {
-        list.push($(this).text());
-      });
-      com.topics = list;
-
-      // recommendations by meetup
-      com.recommended = [];
-      $("#meetup_serendipity ul li h5 a").each(function () {
-        com.recommended.push({
-          name: $(this).text(),
-          url: $(this).attr("href")
-        });
-      });
-
-      return com;
-    });
-    console.log(JSON.stringify(community));
-    phantom.exit()
-  });
 });
+
+
+var getListOfMembers = function (url, cb) {
+
+  meetup.getMembers(url, function (list) {
+    var members = [];
+
+    console.log("List of members obtained.");
+
+    // Getting members details
+    var consumeMem = function (member, cb) {
+      meetup.getMemberProfile(url, member.memid, function (profile) {
+
+        console.log("Member [" + members.length + "] " + member.memid + " obtained.");
+
+        members.push(profile);        
+        
+        if (list.length > 0) {
+          setTimeout(goNextMember, 500 + Math.round(2000 * Math.random()));
+        } else {
+          cb(members);
+        }
+      });
+    };
+
+    var goNextMember = function () {
+      consumeMem(list.shift(), cb);
+    };
+
+    goNextMember();
+
+  });
+};
+
+
+var getListOfMeetups = function (url, cb) {
+
+  meetup.getMeetups(url, function (list) {
+    var meetups = [];
+
+    console.log("List of meetups obtained. Total: "+ list.length);
+
+    // Getting members details
+    var consumeMeet = function (event, cb) {
+
+      meetup.getMeetupDetail(url, event.eventId, function (detail) {
+
+        console.log("Meetup [" + meetups.length + "] " + event.eventId + " obtained.");
+
+        // enrich meetup information
+        detail.wentCount = event.wentCount;
+        detail.ratingAvg = event.ratingAvg;
+        detail.ratingCount = event.ratingCount;
+        detail.photosCount = event.photosCount;
+
+        meetups.push(detail);
+        if (list.length > 0) {
+          setTimeout(goNextMeetup, 500 + Math.round(1000 * Math.random()));
+        } else {
+          cb(meetups);
+        }
+      });
+    };
+
+    var goNextMeetup = function () {
+      consumeMeet(list.shift(), cb);
+    };
+
+    console.log("Starting meetup detail retrieval.");
+    goNextMeetup();
+
+  });
+};
+

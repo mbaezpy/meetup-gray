@@ -26,7 +26,7 @@ exports.getCommunity = function (url, cb) {
 
         // list of topics of the community
         var list = [];
-        $("#topicList14 a").each(function () {
+        $("#C_nav .meta-topics-block a").each(function () {
           list.push({
             topicId: $(this).attr("data-topicid"),
             topic: $(this).attr("data-topic"),
@@ -62,11 +62,18 @@ exports.getMembers = function (communityURL, cb) {
 
   var processPage = function (url, cb) {
     page.open(url, function (status) {
+
+      console.log("status: " + status + " url: " + url);
+      if (status == "fail") {
+        setTimeout(goNextPageMembers, 3000);
+        return;
+      }
+
       page.includeJs("http://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js", function () {
 
         var results = page.evaluate(function () {
           // total number of members
-          var nMembers = parseInt($(".tabControl li:first .D_count").text().replace(/[()]/g, ""));
+          var nMembers = parseInt($(".tabControl li:first .D_count").text().replace(/[()]/g, "").replace(",", ""));
 
           // list of members
           var list = [];
@@ -91,9 +98,12 @@ exports.getMembers = function (communityURL, cb) {
           members.push(data);
         });
 
+
+        console.log("length(members): " + members.length + " of " + results.total);
+
         // deciding whether to go to next page
         if (members.length < results.total) {
-          setTimeout(goNextPage, 100);
+          setTimeout(goNextPageMembers, 1000);
         } else {
           cb(members);
         }
@@ -103,72 +113,97 @@ exports.getMembers = function (communityURL, cb) {
   };
 
   // controling the pagination
-  var goNextPage = function () {
-    console.log("length(members): " + members.length);
+  var goNextPageMembers = function () {
     processPage(url + "&offset=" + members.length, cb);
   };
   // starting the process
-  goNextPage();
+  goNextPageMembers();
 
 };
 
 
 exports.getMemberProfile = function (communityURL, memberId, cb) {
   var url = communityURL + "members/" + memberId;
-  page.open(url, function (status) {
-    page.includeJs("http://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js", function () {
-      var member = page.evaluate(function () {
-        var profile = {};
 
-        // retrieving general metadata
-        profile.name = $("#D_memberProfileMeta span[itemprop=name]").text();
-        profile.url = $("#C_metabox a.url").attr("href"),
-          profile.locality = $("#D_memberProfileMeta span[itemprop=addressLocality]").text();
-        profile.region = $("#D_memberProfileMeta span[itemprop=addressRegion]").text();
-        profile.country = $("#D_memberProfileMeta span[itemprop=addressCountry]").text();
-        profile.hometown = $("#D_memberProfileMeta .D_less").text();
-        profile.memberSince = $("#D_memberProfileMeta .D_memberProfileContentItem p").text();
-        profile.photo = $("img .D_memberProfilePhoto").attr("src");
+  var processPage = function () {
 
-        // Answers to the questions posed by the community
-        var list = [];
-        $("#D_memberProfileQuestions > .D_memberProfileContentItem").each(function () {
-          list.push({
-            question: $(this).find("h4").text(),
-            answer: $(this).find("p").text(),
+    page.open(url, function (status) {
+
+      if (status == "fail") {
+        console.log("Failed in getting the member profile, trying again..");
+        setTimeout(processPage, 3000);
+        return;
+      }      
+
+      page.includeJs("http://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js", function () {
+        var member = page.evaluate(function () {
+          var profile = {};
+
+          // retrieving general metadata
+          profile.name = $("#D_groupMemberProfile h1 span[itemprop=name]").text();
+          profile.communityURL = $("#C_metabox a.url").attr("href");
+          profile.memLocality = $("#D_memberProfileMeta span[itemprop=addressLocality]").text();
+          profile.memRegion = $("#D_memberProfileMeta span[itemprop=addressRegion]").text();
+          profile.memCountry = $("#D_memberProfileMeta span[itemprop=addressCountry]").text();
+          profile.hometown = $("#D_memberProfileMeta .D_less").text();
+          if (profile.hometown != "") {
+            profile.hometown = profile.hometown.split("\n").pop();
+          }
+          profile.memberSince = $($("#D_memberProfileMeta .D_memberProfileContentItem p").splice(1)).text();
+          profile.photo = $("img.D_memberProfilePhoto").attr("src");
+
+          // Answers to the questions posed by the community
+          var list = [];
+          $("#D_memberProfileQuestions > .D_memberProfileContentItem").each(function () {
+            list.push({
+              question: $(this).find("h4").text(),
+              answer: $(this).find("p").text(),
+            });
           });
-        });
-        profile.questions = list;
+          profile.questions = list;
 
-        // Other groups where the member is participating
-        var communities = [];
-        $("#my-meetup-groups-list li").each(function () {
-          communities.push({
-            chapterId: $(this).attr("data-chapterid"),
-            name: $(this).find(".figureset-description .D_name a").text(),
-            url: $(this).find(".figureset-description .D_name a").attr("href"),
-            role: $(this).find(".figureset-description .text--secondary").text().trim(),
-            membershipURL: $(this).find(".figureset-description .text--secondary a").attr("href")
+          // Other groups where the member is participating
+          var communities = [];
+          $("#my-meetup-groups-list li").each(function () {
+            var community = {
+              chapterId: $(this).attr("data-chapterid"),
+              name: $(this).find(".figureset-description .D_name a").text(),
+              url: $(this).find(".figureset-description .D_name a").attr("href"),
+              role: $(this).find(".figureset-description .text--secondary").text().trim(),
+              membershipURL: $(this).find(".figureset-description .text--secondary a").attr("href")
+            };
+            if (!community.membershipURL) {
+              community.membershipURL = "";
+              community.memid = "";
+            } else {
+              community.memid = community.membershipURL.split("/").splice(5).shift();
+            }
+
+            communities.push(community);
+
           });
-        });
 
-        profile.communities = communities;
+          profile.communities = communities;
 
-        var topics = [];
-        $("#memberTopicList li a").each(function () {
-          topics.push({
-            topicId: $(this).attr("data-topicid"),
-            topic: $(this).attr("data-topic"),
-            name: $(this).text()
+          var topics = [];
+          $("#memberTopicList li a").each(function () {
+            topics.push({
+              topicId: $(this).attr("data-topicid"),
+              topic: $(this).attr("data-topic"),
+              name: $(this).text()
+            });
           });
-        });
-        profile.topics = topics;
+          profile.topics = topics;
 
-        return profile;
+          return profile;
+        });
+        member.memid = memberId;
+        cb(member);
       });
-      cb(member);
     });
-  });
+  };
+
+  processPage();
 
 };
 
@@ -177,8 +212,19 @@ exports.getMeetups = function (communityURL, cb) {
   var url = communityURL + "events/past/";
   var events = [];
 
+  //  page.onConsoleMessage = function (msg, lineNum, sourceId) {
+  //    console.log('CONSOLE: ' + msg);
+  //  };
+
   var processPage = function (url, cb) {
     page.open(url, function (status) {
+
+      console.log("status: " + status + " url : " + url);
+      if (status == "fail") {
+        setTimeout(goNextPage, 3000);
+        return;
+      }
+
       page.includeJs("http://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js", function () {
 
         var results = page.evaluate(function () {
@@ -190,7 +236,7 @@ exports.getMeetups = function (communityURL, cb) {
           $("#C_document .event-list .event-item").each(function () {
             var event = {};
             event.title = $(this).find(".event-title").text().trim();
-            event.url = $(this).find(".event-title").attr("src");
+            event.url = $(this).find(".event-title").attr("href");
             event.eventId = event.url.split("/").splice(5).shift();
             event.date = $(this).find("div.flush--left").text().trim();
             event.wentCount = $(this).find(".event-rating").text().trim().split("\n").shift();
@@ -223,7 +269,7 @@ exports.getMeetups = function (communityURL, cb) {
 
         // deciding whether to go to next page
         if (results.length > 0) {
-          setTimeout(goNextPage, 500);
+          setTimeout(goNextPage, 1000);
         } else {
           cb(events);
         }
@@ -237,10 +283,6 @@ exports.getMeetups = function (communityURL, cb) {
     var page = Math.ceil(events.length / 5);
     console.log("length(events): " + events.length + " page = " + page);
 
-    if (events.length > 0) {
-      console.log(events[events.length - 1].title + " " + events[events.length - 1].date);
-    }
-
     processPage(url + "?page=" + page, cb);
   };
   // starting the process
@@ -251,62 +293,80 @@ exports.getMeetups = function (communityURL, cb) {
 
 exports.getMeetupDetail = function (communityURL, eventId, cb) {
   var url = communityURL + "events/" + eventId + "/";
-  page.open(url, function (status) {
-    page.includeJs("http://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js", function () {
-      var details = page.evaluate(function () {
-        var event = {};
+  var processPage = function () {
+    page.open(url, function (status) {
+      console.log(status);
 
-        event.title = $("#eventdets #event-title").text().trim();
-        event.date = $("#eventdets .past-event-info li:first").text().trim();
-        event.locAddress = $("#eventdets .past-event-info li[data-address]").attr("data-address");
-        event.locName = $("#eventdets .past-event-info li[data-address]").attr("data-name");
-        event.description = $("#eventdets #past-event-description-wrap p:first").text();
-
-        // Answers to the questions posed by the community
-        var comments = [];
-        var lastComment = {};
-        $("#conversation li[data-commenttype]").each(function () {
-          var comment = {};
-          comment.commentId = $(this).attr("id");
-          comment.memid = $(this).find("h5 a").attr("data-memberid");
-          comment.name = $(this).find("h5 a").attr("title");
-          comment.body = $(this).find(".comment-body").text().trim();
-          
-          var extra = $(this).find(".figureset-description > p").text().trim().split(" · ");
-          comment.likes = extra.shift();
-          comment.date = extra.shift().trim();
-          
-          if ($(this).attr("data-commenttype") == "REPLY"){
-            comment.replyTo = lastComment.commentId;
-          } else {
-            lastComment = comment;
-          }
-          
-          comments.push(comment);
-        });
-        event.comments = comments;
-
-        // Other groups where the member is participating
-        var participants = [];
-        $("#rsvp-list > li").each(function () {
-          var member = {};
-          member.memid = $(this).attr("data-memberid");
-          member.name = $(this).find(".member-name").text().trim();
-          member.role = $(this).find(".rsvp-introBlurb h6").text().trim();
-
-          participants.push(member);
-        });
-
-        event.participants = participants;
-
-        return event;
-      });
+      if (status == "fail") {
+        setTimeout(processPage, 3000);
+        return;
+      }
       
-      details.eventId = eventId;
-      details.url = url;
-      cb(details);
+      try {
+
+        page.includeJs("http://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js", function () {
+          var details = page.evaluate(function () {
+            var event = {};
+
+            event.title = $("#eventdets #event-title").text().trim();
+            event.date = $("#eventdets .past-event-info li:first").text().trim();
+            event.locAddress = $("#eventdets .past-event-info li[data-address]").attr("data-address");
+            event.locName = $("#eventdets .past-event-info li[data-address]").attr("data-name");
+            event.description = $("#eventdets #past-event-description-wrap p:first").text();
+
+            // Answers to the questions posed by the community
+            var comments = [];
+            var lastComment = {};
+            $("#conversation li[data-commenttype]").each(function () {
+              var comment = {};
+              comment.commentId = $(this).attr("id");
+              comment.memid = $(this).find("h5 a").attr("data-memberid");
+              comment.name = $(this).find("h5 a").attr("title");
+              comment.body = $(this).find(".comment-body").text().trim();
+
+              var extra = $(this).find(".figureset-description > p").text().trim().split(" · ");
+              comment.likes = extra.shift();
+              comment.date = extra.shift().trim();
+
+              if ($(this).attr("data-commenttype") == "REPLY") {
+                comment.replyTo = lastComment.commentId;
+              } else {
+                comment.replyTo = "";
+                lastComment = comment;
+              }
+
+              comments.push(comment);
+            });
+            event.comments = comments;
+
+            // Other groups where the member is participating
+            var participants = [];
+            $("#rsvp-list > li").each(function () {
+              var member = {};
+              member.memid = $(this).attr("data-memberid");
+              member.name = $(this).find(".member-name a").text().trim();
+              member.role = $(this).find(".rsvp-introBlurb h6").text().trim().replace(/[\t\n]/g, "");
+              member.guests = $(this).find(".member-name .rsvp-guests").text().trim();
+
+              participants.push(member);
+            });
+
+            event.participants = participants;
+
+            return event;
+          });
+
+          details.eventId = eventId;
+          details.url = url;
+          cb(details);
+        });
+        
+      } catch(err){
+        setTimeout(processPage, 3000);
+        return;        
+      }
     });
-  });
+  }
+  processPage();
 
 };
-
