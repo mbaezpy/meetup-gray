@@ -7,7 +7,30 @@
  * 
  */
 
-var page = require('webpage').create();
+var webpage = require('webpage');
+var page = null;
+
+exports.init = function () {
+  
+  if (page){
+    page.close();
+  }
+
+  page = webpage.create({
+    pageSettings: {
+      loadImages: true,
+      loadPlugins: false,
+    },
+    onResourceRequested: function (R, req, net) {
+      var match = req.url.match(/fbexternal-a\.akamaihd\.net\/safe_image|\.pdf|\.css|\.mp4|\.png|\.gif|\.avi|\.bmp|\.jpg|\.jpeg|\.swf|\.fla|\.xsd|\.xls|\.doc|\.ppt|\.zip|\.rar|\.7zip|\.gz|\.csv/gim);
+      if (match !== null) {
+        net.abort();
+      }
+    }
+  });
+};
+
+exports.reload = exports.init;
 
 
 exports.getCommunity = function (url, cb) {
@@ -52,13 +75,9 @@ exports.getCommunity = function (url, cb) {
 };
 
 
-exports.getMembers = function (communityURL, cb) {
+exports.getMembers = function (communityURL, pageStart, cb) {
   var url = communityURL + "members/?sort=last_visited&desc=1";
   var members = [];
-
-  //  page.onConsoleMessage = function(msg, lineNum, sourceId) {
-  //    console.log('CONSOLE: ' + msg + ' (from line #' + lineNum + ' in "' + sourceId + '")');
-  //  };
 
   var processPage = function (url, cb) {
     page.open(url, function (status) {
@@ -99,10 +118,11 @@ exports.getMembers = function (communityURL, cb) {
         });
 
 
-        console.log("length(members): " + members.length + " of " + results.total);
+        console.log(members.length + " - members: " + (pageStart + members.length)+ 
+                    " of " + results.total);
 
         // deciding whether to go to next page
-        if (members.length < results.total) {
+        if ((pageStart + members.length) < results.total) {
           setTimeout(goNextPageMembers, 1000);
         } else {
           cb(members);
@@ -114,7 +134,8 @@ exports.getMembers = function (communityURL, cb) {
 
   // controling the pagination
   var goNextPageMembers = function () {
-    processPage(url + "&offset=" + members.length, cb);
+    var page = pageStart + members.length
+    processPage(url + "&offset=" + page, cb);
   };
   // starting the process
   goNextPageMembers();
@@ -133,7 +154,7 @@ exports.getMemberProfile = function (communityURL, memberId, cb) {
         console.log("Failed in getting the member profile, trying again..");
         setTimeout(processPage, 3000);
         return;
-      }      
+      }
 
       page.includeJs("http://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js", function () {
         var member = page.evaluate(function () {
@@ -254,6 +275,8 @@ exports.getMeetups = function (communityURL, cb) {
             // parsing photos count
             if ($(this).find(".event-rating a").length > 0) {
               event.photosCount = $(this).find(".event-rating  a").text().trim().split(" ").shift();
+            } else {
+              event.photosCount = "";
             }
 
             list.push(event);
@@ -295,13 +318,12 @@ exports.getMeetupDetail = function (communityURL, eventId, cb) {
   var url = communityURL + "events/" + eventId + "/";
   var processPage = function () {
     page.open(url, function (status) {
-      console.log(status);
 
       if (status == "fail") {
         setTimeout(processPage, 3000);
         return;
       }
-      
+
       try {
 
         page.includeJs("http://ajax.googleapis.com/ajax/libs/jquery/1.6.1/jquery.min.js", function () {
@@ -313,6 +335,9 @@ exports.getMeetupDetail = function (communityURL, eventId, cb) {
             event.locAddress = $("#eventdets .past-event-info li[data-address]").attr("data-address");
             event.locName = $("#eventdets .past-event-info li[data-address]").attr("data-name");
             event.description = $("#eventdets #past-event-description-wrap p:first").text();
+            
+            if (!event.locAddress) event.locAddress = "";
+            if (!event.locName) event.locName = "";
 
             // Answers to the questions posed by the community
             var comments = [];
@@ -325,8 +350,12 @@ exports.getMeetupDetail = function (communityURL, eventId, cb) {
               comment.body = $(this).find(".comment-body").text().trim();
 
               var extra = $(this).find(".figureset-description > p").text().trim().split(" · ");
-              comment.likes = extra.shift();
-              comment.date = extra.shift().trim();
+              comment.likes = "";
+              comment.date = "";
+              if (extra && extra.length == 2){
+                comment.likes = extra.shift();
+                comment.date = extra.shift().trim();
+              }
 
               if ($(this).attr("data-commenttype") == "REPLY") {
                 comment.replyTo = lastComment.commentId;
@@ -360,10 +389,10 @@ exports.getMeetupDetail = function (communityURL, eventId, cb) {
           details.url = url;
           cb(details);
         });
-        
-      } catch(err){
+
+      } catch (err) {
         setTimeout(processPage, 3000);
-        return;        
+        return;
       }
     });
   }
